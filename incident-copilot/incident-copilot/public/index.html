@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Incident Copilot — memory-powered on-call agent</title>
+<style>
+  :root {
+    --bg: #0b0d12; --panel: #12151c; --border: #232734; --text: #e6e8ee;
+    --muted: #8b91a3; --accent: #5b8cff; --good: #35d18f; --warn: #ffb454;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Segoe UI", Inter, sans-serif;
+    background: var(--bg); color: var(--text); padding: 32px 16px 80px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin-bottom: 4px; }
+  .sub { color: var(--muted); margin-bottom: 28px; font-size: 0.95rem; }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; margin-bottom: 20px;
+  }
+  label { display: block; font-size: 0.85rem; color: var(--muted); margin: 10px 0 6px; }
+  textarea, input {
+    width: 100%; background: #0e1117; border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 10px 12px; font-size: 0.95rem; font-family: inherit; resize: vertical;
+  }
+  textarea { min-height: 90px; }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 10px 18px; font-size: 0.95rem; cursor: pointer; margin-top: 14px;
+  }
+  button.secondary { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badge {
+    display: inline-block; font-size: 0.75rem; padding: 3px 9px; border-radius: 999px;
+    background: rgba(91,140,255,0.15); color: var(--accent); margin-bottom: 10px;
+  }
+  .badge.pattern { background: rgba(255,180,84,0.15); color: var(--warn); }
+  .diagnosis { white-space: pre-wrap; line-height: 1.5; font-size: 0.95rem; }
+  .pattern-box {
+    border-left: 3px solid var(--warn); padding: 10px 14px; margin-top: 14px;
+    background: rgba(255,180,84,0.06); border-radius: 0 8px 8px 0; font-size: 0.9rem;
+  }
+  .hidden { display: none; }
+  .resolved { color: var(--good); font-size: 0.9rem; margin-top: 10px; }
+  .memcount { color: var(--muted); font-size: 0.8rem; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🛠️ Incident Copilot</h1>
+  <div class="sub">An on-call agent with persistent memory, powered by Hindsight + Groq.</div>
+
+  <div class="panel">
+    <label>Service</label>
+    <input id="service" placeholder="e.g. checkout-api" />
+    <label>What's happening? (paste an error / symptom)</label>
+    <textarea id="symptom" placeholder="e.g. Redis connection timeouts, requests hanging then failing with ECONNREFUSED..."></textarea>
+    <button id="diagnoseBtn" onclick="diagnose()">Diagnose</button>
+  </div>
+
+  <div id="result" class="panel hidden">
+    <span id="memBadge" class="badge"></span>
+    <div id="diagnosisText" class="diagnosis"></div>
+    <div id="patternBox" class="pattern-box hidden"></div>
+
+    <label style="margin-top:18px;">Root cause found (once you know it)</label>
+    <input id="rootCause" placeholder="What actually caused it" />
+    <label>Fix applied</label>
+    <input id="fix" placeholder="What you did to resolve it" />
+    <label>Resolved by</label>
+    <input id="resolvedBy" placeholder="Your name" />
+    <button class="secondary" onclick="resolve()">Mark Resolved (saves to memory)</button>
+    <div id="resolvedMsg" class="resolved hidden">✓ Saved to memory — next similar incident will recall this.</div>
+  </div>
+</div>
+
+<script>
+async function diagnose() {
+  const service = document.getElementById('service').value;
+  const symptom = document.getElementById('symptom').value;
+  if (!symptom.trim()) return alert('Describe the incident first.');
+
+  const btn = document.getElementById('diagnoseBtn');
+  btn.disabled = true; btn.textContent = 'Thinking...';
+
+  try {
+    const res = await fetch('/api/diagnose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ description: `Service: ${service}. ${symptom}` }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    document.getElementById('result').classList.remove('hidden');
+    document.getElementById('memBadge').textContent =
+      data.matchedMemoryCount > 0
+        ? `🧠 grounded in ${data.matchedMemoryCount} past incident(s)`
+        : `🧠 no memory yet for this — cold start`;
+    document.getElementById('diagnosisText').textContent = data.diagnosis;
+
+    const patternBox = document.getElementById('patternBox');
+    if (data.pattern && !data.pattern.toLowerCase().includes('no recurring pattern')) {
+      patternBox.classList.remove('hidden');
+      patternBox.innerHTML = '<strong>🔁 Recurring pattern:</strong> ' + data.pattern;
+    } else {
+      patternBox.classList.add('hidden');
+    }
+
+    document.getElementById('resolvedMsg').classList.add('hidden');
+  } catch (e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Diagnose';
+  }
+}
+
+async function resolve() {
+  const service = document.getElementById('service').value;
+  const symptom = document.getElementById('symptom').value;
+  const rootCause = document.getElementById('rootCause').value;
+  const fix = document.getElementById('fix').value;
+  const resolvedBy = document.getElementById('resolvedBy').value;
+  if (!fix.trim()) return alert('Add the fix you applied first.');
+
+  const res = await fetch('/api/resolve', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service, symptom, rootCause, fix, resolvedBy }),
+  });
+  const data = await res.json();
+  if (data.error) return alert('Error: ' + data.error);
+  document.getElementById('resolvedMsg').classList.remove('hidden');
+}
+</script>
+</body>
+</html>
