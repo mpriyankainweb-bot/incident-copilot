@@ -1,0 +1,8 @@
+node_modules
+node_modules/
+**/node_modules
+**/node_modules/
+incident-copilot/incident-copilot/node_modules/
+.env
+.DS_Store
+*.log
