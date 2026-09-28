@@ -95,4 +95,5 @@ app.post('/api/resolve', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Incident Copilot running on http://localhost:${PORT}`));
+const HOST = '0.0.0.0';
+app.listen(PORT, HOST, () => console.log(`Incident Copilot running on http://${HOST}:${PORT}`));
